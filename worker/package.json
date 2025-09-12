@@ -1,1 +1,38 @@
-
+{
+  "name": "edusmart-scheduler-worker",
+  "version": "1.0.0",
+  "description": "Background worker service for EduSmart Scheduler - Handles timetable generation algorithms",
+  "main": "worker.js",
+  "scripts": {
+    "start": "node worker.js",
+    "dev": "nodemon worker.js",
+    "test": "jest"
+  },
+  "dependencies": {
+    "dotenv": "^16.3.1",
+    "pg": "^8.11.0",
+    "redis": "^4.6.7",
+    "bull": "^4.11.3",
+    "uuid": "^9.0.0",
+    "winston": "^3.9.0",
+    "moment": "^2.29.4",
+  "geneticalgorithm": "^0.3.1",
+    "lodash": "^4.17.21",
+    "mathjs": "^11.9.1",
+    "p-limit": "^4.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1",
+    "jest": "^29.6.1",
+    "eslint": "^8.44.0"
+  },
+  "keywords": [
+    "genetic-algorithm",
+    "scheduling",
+    "optimization",
+    "worker",
+    "background-jobs"
+  ],
+  "author": "EduSmart Team",
+  "license": "MIT"
+}

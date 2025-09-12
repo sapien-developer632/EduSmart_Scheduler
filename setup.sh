@@ -24,13 +24,21 @@ if [ ! -f .env ]; then
     echo "📝 Creating environment file..."
     cp .env.template .env
     
-    # Generate a random JWT secret
+    # Generate a random JWT secret and replace it properly
     if command -v openssl &> /dev/null; then
-        JWT_SECRET=$(openssl rand -base64 32)
-        sed -i "s/your_super_secret_jwt_key_change_in_production_minimum_32_characters/$JWT_SECRET/" .env
+        JWT_SECRET=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-25)
+        # Use a more reliable method to replace the JWT secret
+        python3 -c "
+import os
+with open('.env', 'r') as f:
+    content = f.read()
+content = content.replace('your_super_secret_jwt_key_change_in_production_minimum_32_characters', '$JWT_SECRET')
+with open('.env', 'w') as f:
+    f.write(content)
+"
         echo "✅ Generated secure JWT secret"
     else
-        echo "⚠️  OpenSSL not found. Please manually update JWT_SECRET in .env file"
+        echo "⚠️  OpenSSL not found. Using default JWT secret (change this in production!)"
     fi
 else
     echo "✅ Environment file already exists"
@@ -46,7 +54,7 @@ docker-compose up --build -d
 
 # Wait for services to be ready
 echo "⏳ Waiting for services to start..."
-sleep 10
+sleep 15
 
 # Check if services are running
 if docker-compose ps | grep -q "Up"; then

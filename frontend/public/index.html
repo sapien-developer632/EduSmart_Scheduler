@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#667eea" />
+    <meta name="description" content="EduSmart Scheduler - University Timetable Management System" />
+    
+    <title>EduSmart Scheduler</title>
+    
+    <style>
+      /* Loading spinner styles */
+      .loading-container {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      }
+      
+      .spinner {
+        width: 40px;
+        height: 40px;
+        border: 4px solid rgba(255,255,255,0.3);
+        border-top: 4px solid white;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin-bottom: 1rem;
+      }
+      
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+    </style>
+  </head>
+  <body>
+    <noscript>
+      <div style="padding: 2rem; text-align: center; background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb;">
+        <h2>JavaScript Required</h2>
+        <p>You need to enable JavaScript to run EduSmart Scheduler.</p>
+      </div>
+    </noscript>
+    
+    <div id="root">
+      <!-- Loading screen shown while React loads -->
+      <div class="loading-container">
+        <div class="spinner"></div>
+        <h1>🎓 EduSmart Scheduler</h1>
+        <p>Loading University Timetable Management System...</p>
+      </div>
+    </div>
+    
+    <script>
+      // Simple console message for developers
+      console.log('🎓 EduSmart Scheduler - University Timetable Management System');
+      console.log('📅 Built with React, Node.js, PostgreSQL, and Redis');
+      console.log('🔧 Backend API: /api');
+    </script>
+  </body>
+</html>
