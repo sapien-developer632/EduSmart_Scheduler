@@ -1,0 +1,119 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: edusmart_postgres
+    environment:
+      POSTGRES_DB: edusmart_scheduler
+      POSTGRES_USER: edusmart_user
+      POSTGRES_PASSWORD: edusmart_pass
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+    networks:
+      - edusmart_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U edusmart_user -d edusmart_scheduler"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for caching and message queue
+  redis:
+    image: redis:7-alpine
+    container_name: edusmart_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - edusmart_network
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API Server
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: edusmart_backend
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: postgresql://edusmart_user:edusmart_pass@postgres:5432/edusmart_scheduler
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: your_super_secret_jwt_key_change_in_production
+      JWT_EXPIRE: 24h
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - edusmart_network
+    command: npm run dev
+
+  # Worker Service for background processing
+  worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    container_name: edusmart_worker
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://edusmart_user:edusmart_pass@postgres:5432/edusmart_scheduler
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - ./worker:/app
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - edusmart_network
+    command: npm run dev
+
+  # Frontend React Application
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: edusmart_frontend
+    environment:
+      REACT_APP_API_URL: http://localhost:3001/api
+      REACT_APP_WS_URL: ws://localhost:3001
+      PORT: 3000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - edusmart_network
+    command: npm start
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  edusmart_network:
+    driver: bridge
