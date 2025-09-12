@@ -39,12 +39,59 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
 }
 
+/* Navigation Menu Styles */
+.nav-menu {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.nav-menu button {
+  padding: 0.75rem 1.5rem;
+  background: rgba(255,255,255,0.1);
+  color: white;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.nav-menu button:hover {
+  background: rgba(255,255,255,0.2);
+  border-color: rgba(255,255,255,0.5);
+}
+
+.nav-menu button.nav-active {
+  background: rgba(255,255,255,0.9);
+  color: #667eea;
+  border-color: rgba(255,255,255,0.9);
+  font-weight: 600;
+}
+
+/* User Info Styles */
 .user-info {
   display: flex;
   align-items: center;
   gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.user-welcome {
+  margin-right: 1rem;
+  font-weight: 500;
+}
+
+.user-role {
+  color: rgba(255,255,255,0.8);
+  font-size: 0.9em;
+  font-weight: normal;
 }
 
 .logout-btn {
@@ -251,6 +298,140 @@ body {
   background: rgba(102, 126, 234, 0.1);
 }
 
+/* Admin Controls Styles */
+.admin-controls {
+  background: #f8f9fa;
+  padding: 1.5rem;
+  border-radius: 8px;
+  border-left: 4px solid #667eea;
+}
+
+.admin-info {
+  margin-bottom: 1.5rem;
+}
+
+.admin-info p {
+  color: #666;
+  line-height: 1.6;
+}
+
+.admin-actions {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.admin-actions .primary-btn,
+.admin-actions .secondary-btn {
+  flex: 1;
+  min-width: 200px;
+}
+
+/* Timetable Section Styles */
+.timetable-section {
+  background: white;
+  padding: 2rem;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.timetable-section h2 {
+  margin-bottom: 1.5rem;
+  color: #333;
+  border-bottom: 2px solid #f1f1f1;
+  padding-bottom: 0.5rem;
+}
+
+.timetable-placeholder {
+  text-align: center;
+  padding: 3rem 2rem;
+  background: #f8f9fa;
+  border-radius: 12px;
+  border: 2px dashed #ddd;
+}
+
+.placeholder-content h3 {
+  color: #667eea;
+  margin-bottom: 1rem;
+  font-size: 1.5rem;
+}
+
+.placeholder-content p {
+  color: #666;
+  margin-bottom: 1rem;
+  line-height: 1.6;
+}
+
+.placeholder-content ul {
+  text-align: left;
+  max-width: 400px;
+  margin: 1.5rem auto;
+  color: #666;
+}
+
+.placeholder-content li {
+  margin-bottom: 0.5rem;
+  padding-left: 0.5rem;
+}
+
+/* Data Upload Integration Styles */
+.data-upload-section {
+  background: white;
+  border-radius: 12px;
+  padding: 2rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+/* Additional Utility Classes */
+.text-center {
+  text-align: center;
+}
+
+.mb-1 { margin-bottom: 1rem; }
+.mb-2 { margin-bottom: 2rem; }
+.mt-1 { margin-top: 1rem; }
+.mt-2 { margin-top: 2rem; }
+
+.flex {
+  display: flex;
+}
+
+.flex-col {
+  flex-direction: column;
+}
+
+.items-center {
+  align-items: center;
+}
+
+.justify-between {
+  justify-content: space-between;
+}
+
+.gap-1 { gap: 1rem; }
+.gap-2 { gap: 2rem; }
+
+/* Status Indicators */
+.status-success {
+  color: #28a745;
+  font-weight: 500;
+}
+
+.status-error {
+  color: #dc3545;
+  font-weight: 500;
+}
+
+.status-warning {
+  color: #ffc107;
+  font-weight: 500;
+}
+
+.status-info {
+  color: #17a2b8;
+  font-weight: 500;
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
   .App-header {
@@ -260,6 +441,23 @@ body {
   .nav-bar {
     flex-direction: column;
     gap: 1rem;
+    text-align: center;
+  }
+  
+  .nav-menu {
+    flex-direction: column;
+    width: 100%;
+  }
+  
+  .nav-menu button {
+    width: 100%;
+    justify-content: center;
+  }
+  
+  .user-info {
+    flex-direction: column;
+    width: 100%;
+    text-align: center;
   }
   
   .App-main {
@@ -276,5 +474,45 @@ body {
   
   .courses-grid {
     grid-template-columns: 1fr;
+  }
+  
+  .admin-actions {
+    flex-direction: column;
+  }
+  
+  .admin-actions .primary-btn,
+  .admin-actions .secondary-btn {
+    min-width: auto;
+  }
+  
+  .placeholder-content {
+    padding: 1rem;
+  }
+  
+  .quick-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .App-header {
+    padding: 0.5rem;
+  }
+  
+  .App-main {
+    padding: 0.5rem;
+  }
+  
+  .section {
+    padding: 1rem;
+  }
+  
+  .nav-menu button {
+    padding: 0.5rem 1rem;
+    font-size: 0.8rem;
+  }
+  
+  .timetable-placeholder {
+    padding: 2rem 1rem;
   }
 }
