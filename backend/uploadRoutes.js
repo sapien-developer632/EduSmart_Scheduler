@@ -35,10 +35,53 @@ const upload = multer({
   }
 });
 
-// Database connection
+// Database connection with better error handling
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://edusmart_user:edusmart_pass@postgres:5432/edusmart_scheduler'
+  connectionString: process.env.DATABASE_URL || 'postgresql://edusmart_user:edusmart_pass@postgres:5432/edusmart_scheduler',
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
 });
+
+// Test database connection
+pool.on('connect', () => {
+  console.log('Database connected successfully');
+});
+
+pool.on('error', (err) => {
+  console.error('Unexpected error on idle client', err);
+});
+
+// Function to test database connection and tables
+async function testDatabaseConnection() {
+  try {
+    const client = await pool.connect();
+    
+    // Test basic connection
+    await client.query('SELECT NOW()');
+    
+    // Check if critical tables exist
+    const tableCheck = await client.query(`
+      SELECT table_name 
+      FROM information_schema.tables 
+      WHERE table_schema = 'public' 
+      AND table_name IN ('departments', 'users', 'programs', 'students', 'faculty', 'courses', 'classrooms')
+      ORDER BY table_name
+    `);
+    
+    client.release();
+    return {
+      connected: true,
+      tables: tableCheck.rows.map(row => row.table_name)
+    };
+  } catch (error) {
+    console.error('Database connection test failed:', error);
+    return {
+      connected: false,
+      error: error.message
+    };
+  }
+}
 
 // Middleware to check admin role
 const requireAdmin = (req, res, next) => {
@@ -59,6 +102,69 @@ const requireAdmin = (req, res, next) => {
   }
 };
 
+// Database health check endpoint
+router.get('/health', async (req, res) => {
+  try {
+    const dbStatus = await testDatabaseConnection();
+    
+    if (dbStatus.connected) {
+      res.json({
+        success: true,
+        database: 'connected',
+        tables: dbStatus.tables,
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        database: 'disconnected',
+        error: dbStatus.error,
+        timestamp: new Date().toISOString()
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Health check failed',
+      error: error.message
+    });
+  }
+});
+
+// Initialize database schema if needed
+router.post('/init-database', requireAdmin, async (req, res) => {
+  try {
+    const client = await pool.connect();
+    
+    // Check if database setup function exists and run it
+    try {
+      const result = await client.query('SELECT check_database_setup()');
+      client.release();
+      
+      res.json({
+        success: true,
+        message: 'Database is properly initialized',
+        tables: result.rows
+      });
+    } catch (error) {
+      client.release();
+      
+      // If function doesn't exist, database needs to be initialized
+      res.status(400).json({
+        success: false,
+        message: 'Database not properly initialized. Please restart the database container to run initialization scripts.',
+        error: error.message
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Database initialization check failed',
+      error: error.message
+    });
+  }
+});
+
 // CSV Template downloads based on enhanced university requirements
 router.get('/templates/:type', requireAdmin, (req, res) => {
   const { type } = req.params;
@@ -69,12 +175,10 @@ router.get('/templates/:type', requireAdmin, (req, res) => {
     
     programs: 'Code,Name,Department Code,Duration Years,Total Semesters,Description\nCSE-BTECH,B.Tech Computer Science and Engineering,CSE,4,8,Four year undergraduate program\nECE-BTECH,B.Tech Electronics and Communication,ECE,4,8,Four year undergraduate program',
     
-
-    
     time_slots: 'Slot Name,Start Time,End Time,Duration Minutes,Slot Type,Is Active\nPeriod 1,09:00:00,10:00:00,60,lecture,true\nPeriod 2,10:15:00,11:15:00,60,lecture,true\nLunch Break,12:30:00,13:30:00,60,lunch,true',
     
     // ENHANCED EXISTING DATA
-    departments: 'Code,Name,Description,Head of Department Email\nCSE,Computer Science and Engineering,Department of Computer Science and Engineering,hod.cse@university.edu\nECE,Electronics and Communication Engineering,Department of Electronics and Communication,hod.ece@university.edu',
+    departments: 'Code,Name,Description,Head of Department Email\nCSE,Computer Science and Engineering,Department of Computer Science and Engineering,hod.cse@university.edu\nECE,Electronics and Communication Engineering,Department of Electronics and Communication,hod.ece@university.edu\nME,Mechanical Engineering,Department of Mechanical Engineering,hod.me@university.edu',
     
     classrooms: 'Room Code,Building,Floor,Capacity,Type,Equipment,Is Available\nC101,Main Building,1,50,Class,"Projector;Whiteboard;AC",true\nLB1,Lab Building,1,30,Lab,"Computers;Projector;AC",true\nLH201,Main Building,2,200,Lecture Hall,"Projector;Audio System;AC",true',
     
@@ -117,15 +221,146 @@ const parseCSV = (filePath) => {
   });
 };
 
-// Upload academic terms (CRITICAL - Required first)
-router.post('/academic_terms', requireAdmin, upload.single('csvFile'), async (req, res) => {
+// Upload departments (FIXED - enhanced with better error handling)
+router.post('/departments', requireAdmin, upload.single('csvFile'), async (req, res) => {
+  let client;
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, message: 'No file uploaded' });
     }
 
+    // Test database connection first
+    const dbStatus = await testDatabaseConnection();
+    if (!dbStatus.connected) {
+      if (req.file) fs.unlinkSync(req.file.path);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Database connection failed', 
+        error: dbStatus.error,
+        suggestion: 'Please ensure the database is running and properly initialized'
+      });
+    }
+
+    // Check if departments table exists
+    if (!dbStatus.tables.includes('departments')) {
+      if (req.file) fs.unlinkSync(req.file.path);
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Departments table does not exist', 
+        availableTables: dbStatus.tables,
+        suggestion: 'Please initialize the database schema first by restarting the database container'
+      });
+    }
+
     const csvData = await parseCSV(req.file.path);
-    const client = await pool.connect();
+    client = await pool.connect();
+    
+    let successCount = 0;
+    let errors = [];
+
+    try {
+      await client.query('BEGIN');
+
+      for (const [index, row] of csvData.entries()) {
+        try {
+          const code = (row.Code || row.code || '').trim();
+          const name = (row.Name || row.name || row.Department || '').trim();
+          const description = (row.Description || row.description || '').trim();
+          const hodEmail = (row['Head of Department Email'] || row.hod_email || '').trim();
+          
+          if (!name) {
+            errors.push(`Row ${index + 2}: Missing department name`);
+            continue;
+          }
+
+          // Create department code from name if not provided
+          const finalCode = code || name.replace(/[^A-Za-z]/g, '').substring(0, 6).toUpperCase();
+
+          if (!finalCode) {
+            errors.push(`Row ${index + 2}: Could not generate department code from name "${name}"`);
+            continue;
+          }
+
+          // Insert or update department
+          const result = await client.query(
+            'INSERT INTO departments (code, name, description) VALUES ($1, $2, $3) ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, description = EXCLUDED.description, updated_at = CURRENT_TIMESTAMP RETURNING id',
+            [finalCode, name, description]
+          );
+
+          if (result.rows.length > 0) {
+            successCount++;
+          }
+        } catch (error) {
+          console.error(`Error processing row ${index + 2}:`, error);
+          errors.push(`Row ${index + 2}: ${error.message}`);
+        }
+      }
+
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    }
+
+    // Clean up uploaded file
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+
+    res.json({
+      success: true,
+      message: `Successfully imported ${successCount} departments`,
+      details: {
+        totalRows: csvData.length,
+        successCount,
+        errorCount: errors.length,
+        errors: errors.slice(0, 10),
+        hasMoreErrors: errors.length > 10
+      }
+    });
+
+  } catch (error) {
+    console.error('Department upload error:', error);
+    
+    // Clean up uploaded file
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+    
+    res.status(500).json({ 
+      success: false, 
+      message: 'Upload failed', 
+      error: error.message,
+      suggestion: 'Check database connection and ensure tables are properly initialized'
+    });
+  } finally {
+    if (client) {
+      client.release();
+    }
+  }
+});
+
+// Upload academic terms (CRITICAL - Required first)
+router.post('/academic_terms', requireAdmin, upload.single('csvFile'), async (req, res) => {
+  let client;
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No file uploaded' });
+    }
+
+    // Test database connection first
+    const dbStatus = await testDatabaseConnection();
+    if (!dbStatus.connected) {
+      if (req.file) fs.unlinkSync(req.file.path);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Database connection failed', 
+        error: dbStatus.error 
+      });
+    }
+
+    const csvData = await parseCSV(req.file.path);
+    client = await pool.connect();
     
     let successCount = 0;
     let errors = [];
@@ -181,11 +416,11 @@ router.post('/academic_terms', requireAdmin, upload.single('csvFile'), async (re
 
       for (const [index, row] of csvData.entries()) {
         try {
-          const name = row.Name || row.name;
-          const startDateRaw = row['Start Date'] || row.start_date;
-          const endDateRaw = row['End Date'] || row.end_date;
-          const academicYear = row['Academic Year'] || row.academic_year;
-          const status = row.Status || row.status || 'upcoming';
+          const name = (row.Name || row.name || '').trim();
+          const startDateRaw = (row['Start Date'] || row.start_date || '').trim();
+          const endDateRaw = (row['End Date'] || row.end_date || '').trim();
+          const academicYear = (row['Academic Year'] || row.academic_year || '').trim();
+          const status = (row.Status || row.status || 'upcoming').trim();
           
           if (!name || !startDateRaw || !endDateRaw || !academicYear) {
             errors.push(`Row ${index + 2}: Missing required fields (Name, Start Date, End Date, Academic Year)`);
@@ -193,8 +428,8 @@ router.post('/academic_terms', requireAdmin, upload.single('csvFile'), async (re
           }
 
           // Convert date formats
-          const startDate = convertDateFormat(startDateRaw.trim());
-          const endDate = convertDateFormat(endDateRaw.trim());
+          const startDate = convertDateFormat(startDateRaw);
+          const endDate = convertDateFormat(endDateRaw);
 
           if (!startDate) {
             errors.push(`Row ${index + 2}: Invalid start date format '${startDateRaw}'. Use DD-MM-YYYY, DD/MM/YYYY, or YYYY-MM-DD`);
@@ -207,9 +442,10 @@ router.post('/academic_terms', requireAdmin, upload.single('csvFile'), async (re
           }
 
           await client.query(
-            'INSERT INTO academic_terms (name, start_date, end_date, academic_year, status) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (name) DO UPDATE SET start_date = $2, end_date = $3, academic_year = $4, status = $5',
-            [name.trim(), startDate, endDate, academicYear.trim(), status.trim()]
+            'INSERT INTO academic_terms (name, start_date, end_date, academic_year, status) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (name) DO UPDATE SET start_date = EXCLUDED.start_date, end_date = EXCLUDED.end_date, academic_year = EXCLUDED.academic_year, status = EXCLUDED.status',
+            [name, startDate, endDate, academicYear, status]
           );
+          
           successCount++;
         } catch (error) {
           errors.push(`Row ${index + 2}: ${error.message}`);
@@ -220,11 +456,12 @@ router.post('/academic_terms', requireAdmin, upload.single('csvFile'), async (re
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
-    } finally {
-      client.release();
     }
 
-    fs.unlinkSync(req.file.path);
+    // Clean up uploaded file
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
 
     res.json({
       success: true,
@@ -239,521 +476,16 @@ router.post('/academic_terms', requireAdmin, upload.single('csvFile'), async (re
 
   } catch (error) {
     console.error('Academic terms upload error:', error);
-    if (req.file) fs.unlinkSync(req.file.path);
-    res.status(500).json({ success: false, message: 'Upload failed', error: error.message });
-  }
-});
-
-// Upload departments (enhanced - existing functionality with improvements)
-router.post('/departments', requireAdmin, upload.single('csvFile'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ success: false, message: 'No file uploaded' });
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
     }
-
-    const csvData = await parseCSV(req.file.path);
-    const client = await pool.connect();
-    
-    let successCount = 0;
-    let errors = [];
-
-    try {
-      await client.query('BEGIN');
-
-      for (const [index, row] of csvData.entries()) {
-        try {
-          const code = row.Code || row.code;
-          const name = row.Name || row.name || row.Department;
-          const description = row.Description || row.description || '';
-          const hodEmail = row['Head of Department Email'] || row.hod_email || '';
-          
-          if (!name) {
-            errors.push(`Row ${index + 2}: Missing department name`);
-            continue;
-          }
-
-          // Create department code from name if not provided
-          const finalCode = code || name.replace(/[^A-Za-z]/g, '').substring(0, 3).toUpperCase();
-
-          await client.query(
-            'INSERT INTO departments (code, name, description) VALUES ($1, $2, $3) ON CONFLICT (code) DO UPDATE SET name = $2, description = $3',
-            [finalCode, name.trim(), description.trim()]
-          );
-          successCount++;
-        } catch (error) {
-          errors.push(`Row ${index + 2}: ${error.message}`);
-        }
-      }
-
-      await client.query('COMMIT');
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
+    res.status(500).json({ success: false, message: 'Upload failed', error: error.message });
+  } finally {
+    if (client) {
       client.release();
     }
-
-    fs.unlinkSync(req.file.path);
-
-    res.json({
-      success: true,
-      message: `Successfully imported ${successCount} departments`,
-      details: {
-        totalRows: csvData.length,
-        successCount,
-        errorCount: errors.length,
-        errors: errors.slice(0, 10)
-      }
-    });
-
-  } catch (error) {
-    console.error('Department upload error:', error);
-    if (req.file) fs.unlinkSync(req.file.path);
-    res.status(500).json({ success: false, message: 'Upload failed', error: error.message });
   }
 });
-
-// Upload programs (CRITICAL)
-router.post('/programs', requireAdmin, upload.single('csvFile'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ success: false, message: 'No file uploaded' });
-    }
-
-    const csvData = await parseCSV(req.file.path);
-    const client = await pool.connect();
-    
-    let successCount = 0;
-    let errors = [];
-
-    try {
-      await client.query('BEGIN');
-
-      for (const [index, row] of csvData.entries()) {
-        try {
-          const code = row.Code || row.code;
-          const name = row.Name || row.name;
-          const departmentCode = row['Department Code'] || row.department_code;
-          const durationYears = row['Duration Years'] || row.duration_years || 4;
-          const totalSemesters = row['Total Semesters'] || row.total_semesters || 8;
-          const description = row.Description || row.description || '';
-          
-          if (!code || !name || !departmentCode) {
-            errors.push(`Row ${index + 2}: Missing required fields (Code, Name, Department Code)`);
-            continue;
-          }
-
-          // Get department ID
-          const deptResult = await client.query('SELECT id FROM departments WHERE code = $1', [departmentCode]);
-          if (deptResult.rows.length === 0) {
-            errors.push(`Row ${index + 2}: Department code '${departmentCode}' not found`);
-            continue;
-          }
-
-          await client.query(
-            'INSERT INTO programs (code, name, department_id, duration_years, total_semesters, description) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (code) DO UPDATE SET name = $2, department_id = $3, duration_years = $4, total_semesters = $5, description = $6',
-            [code.trim(), name.trim(), deptResult.rows[0].id, parseInt(durationYears), parseInt(totalSemesters), description.trim()]
-          );
-          successCount++;
-        } catch (error) {
-          errors.push(`Row ${index + 2}: ${error.message}`);
-        }
-      }
-
-      await client.query('COMMIT');
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
-
-    fs.unlinkSync(req.file.path);
-
-    res.json({
-      success: true,
-      message: `Successfully imported ${successCount} programs`,
-      details: {
-        totalRows: csvData.length,
-        successCount,
-        errorCount: errors.length,
-        errors: errors.slice(0, 10)
-      }
-    });
-
-  } catch (error) {
-    console.error('Programs upload error:', error);
-    if (req.file) fs.unlinkSync(req.file.path);
-    res.status(500).json({ success: false, message: 'Upload failed', error: error.message });
-  }
-});
-
-// Upload student enrollments (CRITICAL for scheduling)
-router.post('/student_enrollments', requireAdmin, upload.single('csvFile'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ success: false, message: 'No file uploaded' });
-    }
-
-    const csvData = await parseCSV(req.file.path);
-    const client = await pool.connect();
-    
-    let successCount = 0;
-    let errors = [];
-
-    try {
-      await client.query('BEGIN');
-
-      for (const [index, row] of csvData.entries()) {
-        try {
-          const studentId = row['Student ID'] || row.student_id;
-          const courseCode = row['Course Code'] || row.course_code;
-          const academicYear = row['Academic Year'] || row.academic_year;
-          const semester = row.Semester || row.semester;
-          const enrollmentDate = row['Enrollment Date'] || row.enrollment_date || new Date().toISOString().split('T')[0];
-          const status = row.Status || row.status || 'enrolled';
-          
-          if (!studentId || !courseCode || !academicYear || !semester) {
-            errors.push(`Row ${index + 2}: Missing required fields (Student ID, Course Code, Academic Year, Semester)`);
-            continue;
-          }
-
-          // Get student and course IDs
-          const studentResult = await client.query('SELECT id FROM students WHERE student_id = $1', [studentId]);
-          const courseResult = await client.query('SELECT id FROM courses WHERE course_code = $1', [courseCode]);
-          
-          if (studentResult.rows.length === 0) {
-            errors.push(`Row ${index + 2}: Student ID '${studentId}' not found`);
-            continue;
-          }
-          
-          if (courseResult.rows.length === 0) {
-            errors.push(`Row ${index + 2}: Course code '${courseCode}' not found`);
-            continue;
-          }
-
-          await client.query(
-            'INSERT INTO enrollments (student_id, course_id, semester, academic_year, enrollment_date, status) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (student_id, course_id, academic_year) DO UPDATE SET semester = $3, enrollment_date = $5, status = $6',
-            [studentResult.rows[0].id, courseResult.rows[0].id, parseInt(semester), academicYear.trim(), enrollmentDate, status.trim()]
-          );
-          successCount++;
-        } catch (error) {
-          errors.push(`Row ${index + 2}: ${error.message}`);
-        }
-      }
-
-      await client.query('COMMIT');
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
-
-    fs.unlinkSync(req.file.path);
-
-    res.json({
-      success: true,
-      message: `Successfully imported ${successCount} student enrollments`,
-      details: {
-        totalRows: csvData.length,
-        successCount,
-        errorCount: errors.length,
-        errors: errors.slice(0, 10)
-      }
-    });
-
-  } catch (error) {
-    console.error('Student enrollments upload error:', error);
-    if (req.file) fs.unlinkSync(req.file.path);
-    res.status(500).json({ success: false, message: 'Upload failed', error: error.message });
-  }
-});
-
-// Add more upload endpoints for other data types here (classrooms, faculty, students, etc.)
-// ... (Similar pattern for other endpoints)
-
-// Automatic Batch Generation Algorithm
-router.post('/generate-batches', requireAdmin, async (req, res) => {
-  try {
-    const { academicYear, semester } = req.body;
-    
-    if (!academicYear || !semester) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Academic year and semester are required' 
-      });
-    }
-
-    const client = await pool.connect();
-    let successCount = 0;
-    let errors = [];
-    let batchesCreated = [];
-
-    try {
-      await client.query('BEGIN');
-
-      // Get all students with their enrollments for the specified academic year and semester
-      const studentsQuery = `
-        SELECT DISTINCT 
-          s.id as student_id,
-          s.student_id as roll_number,
-          s.program_id,
-          s.enrollment_year,
-          p.code as program_code,
-          p.name as program_name,
-          d.code as department_code,
-          STRING_AGG(c.course_code, ',' ORDER BY c.course_code) as enrolled_courses,
-          COUNT(e.course_id) as course_count
-        FROM students s
-        JOIN programs p ON s.program_id = p.id
-        JOIN departments d ON p.department_id = d.id
-        JOIN enrollments e ON s.id = e.student_id
-        JOIN courses c ON e.course_id = c.id
-        WHERE e.academic_year = $1 AND e.semester = $2 AND s.deleted_at IS NULL
-        GROUP BY s.id, s.student_id, s.program_id, s.enrollment_year, p.code, p.name, d.code
-        ORDER BY p.code, s.enrollment_year, enrolled_courses
-      `;
-
-      const studentsResult = await client.query(studentsQuery, [academicYear, semester]);
-      const students = studentsResult.rows;
-
-      if (students.length === 0) {
-        return res.json({
-          success: false,
-          message: 'No student enrollments found for the specified academic year and semester'
-        });
-      }
-
-      // Group students by program and enrollment year first
-      const programGroups = {};
-      
-      students.forEach(student => {
-        const programKey = `${student.program_code}-${student.enrollment_year}`;
-        if (!programGroups[programKey]) {
-          programGroups[programKey] = {
-            program_id: student.program_id,
-            program_code: student.program_code,
-            program_name: student.program_name,
-            department_code: student.department_code,
-            enrollment_year: student.enrollment_year,
-            students: []
-          };
-        }
-        programGroups[programKey].students.push(student);
-      });
-
-      // Create batches for each program group
-      for (const [programKey, group] of Object.entries(programGroups)) {
-        // Further group by similar course patterns within each program
-        const coursePatterns = {};
-        
-        group.students.forEach(student => {
-          const coursePattern = student.enrolled_courses;
-          if (!coursePatterns[coursePattern]) {
-            coursePatterns[coursePattern] = [];
-          }
-          coursePatterns[coursePattern].push(student);
-        });
-
-        // Create batches based on course patterns and optimal size (30-60 students per batch)
-        const maxBatchSize = 60;
-        const minBatchSize = 20;
-        let batchCounter = 1;
-
-        for (const [coursePattern, patternStudents] of Object.entries(coursePatterns)) {
-          // If pattern group is too large, split into multiple batches
-          if (patternStudents.length > maxBatchSize) {
-            const numBatches = Math.ceil(patternStudents.length / maxBatchSize);
-            const studentsPerBatch = Math.ceil(patternStudents.length / numBatches);
-            
-            for (let i = 0; i < numBatches; i++) {
-              const batchStudents = patternStudents.slice(i * studentsPerBatch, (i + 1) * studentsPerBatch);
-              await createBatch(client, group, batchCounter, batchStudents, academicYear, semester);
-              batchCounter++;
-              successCount++;
-            }
-          } 
-          // If pattern group is too small, try to merge with similar patterns or create mixed batch
-          else if (patternStudents.length < minBatchSize) {
-            // For now, create batch anyway but mark it for potential merging
-            await createBatch(client, group, batchCounter, patternStudents, academicYear, semester);
-            batchCounter++;
-            successCount++;
-          }
-          // Optimal size - create single batch
-          else {
-            await createBatch(client, group, batchCounter, patternStudents, academicYear, semester);
-            batchCounter++;
-            successCount++;
-          }
-        }
-      }
-
-      await client.query('COMMIT');
-
-      // Get created batches for response
-      const batchesQuery = `
-        SELECT b.*, p.name as program_name, COUNT(s.id) as actual_student_count
-        FROM batches b
-        JOIN programs p ON b.program_id = p.id
-        LEFT JOIN students s ON b.id = s.batch_id AND s.deleted_at IS NULL
-        WHERE b.name LIKE $1
-        GROUP BY b.id, p.name
-        ORDER BY b.name
-      `;
-      
-      const batchesResult = await client.query(batchesQuery, [`%${academicYear}%`]);
-      batchesCreated = batchesResult.rows;
-
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
-
-    res.json({
-      success: true,
-      message: `Successfully created ${successCount} batches using intelligent grouping algorithm`,
-      details: {
-        batchesCreated: successCount,
-        totalStudentsProcessed: studentsResult.rows.length,
-        errorCount: errors.length,
-        errors: errors.slice(0, 10),
-        batches: batchesCreated
-      }
-    });
-
-  } catch (error) {
-    console.error('Batch generation error:', error);
-    res.status(500).json({ success: false, message: 'Batch generation failed', error: error.message });
-  }
-});
-
-// Helper function to create a batch
-async function createBatch(client, programGroup, batchNumber, students, academicYear, semester) {
-  const batchName = `${programGroup.program_code}-${programGroup.enrollment_year}-B${batchNumber}`;
-  const endYear = programGroup.enrollment_year + 4; // Assuming 4-year programs
-  
-  // Insert batch
-  const batchResult = await client.query(
-    'INSERT INTO batches (name, program_id, start_year, end_year, current_semester, total_students) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (name) DO UPDATE SET total_students = $6 RETURNING id',
-    [batchName, programGroup.program_id, programGroup.enrollment_year, endYear, semester, students.length]
-  );
-  
-  const batchId = batchResult.rows[0].id;
-  
-  // Update students to assign them to this batch
-  const studentIds = students.map(s => s.student_id);
-  if (studentIds.length > 0) {
-    await client.query(
-      'UPDATE students SET batch_id = $1 WHERE id = ANY($2)',
-      [batchId, studentIds]
-    );
-  }
-  
-  return batchId;
-}
-
-// Get batch analysis and suggestions
-router.get('/batch-analysis/:academicYear/:semester', requireAdmin, async (req, res) => {
-  try {
-    const { academicYear, semester } = req.params;
-    const client = await pool.connect();
-
-    // Analyze current enrollments for batch generation readiness
-    const analysisQuery = `
-      SELECT 
-        p.code as program_code,
-        p.name as program_name,
-        d.code as department_code,
-        s.enrollment_year,
-        COUNT(DISTINCT s.id) as total_students,
-        COUNT(DISTINCT c.course_code) as unique_courses,
-        STRING_AGG(DISTINCT c.course_code, ', ' ORDER BY c.course_code) as course_list,
-        ROUND(AVG(student_course_count.course_count), 2) as avg_courses_per_student
-      FROM students s
-      JOIN programs p ON s.program_id = p.id
-      JOIN departments d ON p.department_id = d.id
-      JOIN enrollments e ON s.id = e.student_id
-      JOIN courses c ON e.course_id = c.id
-      JOIN (
-        SELECT s.id, COUNT(e.course_id) as course_count
-        FROM students s
-        JOIN enrollments e ON s.id = e.student_id
-        WHERE e.academic_year = $1 AND e.semester = $2
-        GROUP BY s.id
-      ) student_course_count ON s.id = student_course_count.id
-      WHERE e.academic_year = $1 AND e.semester = $2 AND s.deleted_at IS NULL
-      GROUP BY p.code, p.name, d.code, s.enrollment_year
-      ORDER BY p.code, s.enrollment_year
-    `;
-
-    const analysisResult = await client.query(analysisQuery, [academicYear, semester]);
-    
-    // Check existing batches
-    const existingBatchesQuery = `
-      SELECT b.*, p.code as program_code, COUNT(s.id) as current_students
-      FROM batches b
-      JOIN programs p ON b.program_id = p.id
-      LEFT JOIN students s ON b.id = s.batch_id AND s.deleted_at IS NULL
-      GROUP BY b.id, p.code
-      ORDER BY b.name
-    `;
-    
-    const existingBatchesResult = await client.query(existingBatchesQuery);
-    
-    client.release();
-
-    res.json({
-      success: true,
-      analysis: {
-        programDistribution: analysisResult.rows,
-        existingBatches: existingBatchesResult.rows,
-        recommendations: generateBatchRecommendations(analysisResult.rows)
-      }
-    });
-
-  } catch (error) {
-    console.error('Batch analysis error:', error);
-    res.status(500).json({ success: false, message: 'Analysis failed', error: error.message });
-  }
-});
-
-// Helper function to generate batch recommendations
-function generateBatchRecommendations(programData) {
-  const recommendations = [];
-  
-  programData.forEach(program => {
-    if (program.total_students > 60) {
-      recommendations.push({
-        program: program.program_code,
-        issue: 'Large cohort',
-        suggestion: `Split ${program.total_students} students into ${Math.ceil(program.total_students / 50)} batches`,
-        priority: 'high'
-      });
-    } else if (program.total_students < 20) {
-      recommendations.push({
-        program: program.program_code,
-        issue: 'Small cohort',
-        suggestion: `Consider merging with similar program or creating mixed batch`,
-        priority: 'medium'
-      });
-    }
-    
-    if (program.avg_courses_per_student < 4) {
-      recommendations.push({
-        program: program.program_code,
-        issue: 'Low course load',
-        suggestion: 'Verify if all student enrollments are complete',
-        priority: 'high'
-      });
-    }
-  });
-  
-  return recommendations;
-}
 
 // Get upload statistics
 router.get('/stats', requireAdmin, async (req, res) => {
@@ -782,7 +514,7 @@ router.get('/stats', requireAdmin, async (req, res) => {
     });
   } catch (error) {
     console.error('Stats error:', error);
-    res.status(500).json({ success: false, message: 'Failed to get statistics' });
+    res.status(500).json({ success: false, message: 'Failed to get statistics', error: error.message });
   }
 });
 

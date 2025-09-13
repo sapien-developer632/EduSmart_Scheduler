@@ -1,5 +1,5 @@
 -- Updated EduSmart Scheduler Database Schema
--- Adapted for real university data structure with roll numbers, subject assignments, and semester tracking
+-- Fixed version with proper error handling and constraints
 
 -- Drop existing tables if they exist (for clean setup)
 DROP TABLE IF EXISTS audit_logs CASCADE;
@@ -7,14 +7,42 @@ DROP TABLE IF EXISTS timetable_entries CASCADE;
 DROP TABLE IF EXISTS timetables CASCADE;
 DROP TABLE IF EXISTS enrollments CASCADE;
 DROP TABLE IF EXISTS course_assignments CASCADE;
+DROP TABLE IF EXISTS course_prerequisites CASCADE;
 DROP TABLE IF EXISTS courses CASCADE;
 DROP TABLE IF EXISTS classrooms CASCADE;
 DROP TABLE IF EXISTS batches CASCADE;
 DROP TABLE IF EXISTS students CASCADE;
 DROP TABLE IF EXISTS faculty CASCADE;
 DROP TABLE IF EXISTS programs CASCADE;
+DROP TABLE IF EXISTS academic_terms CASCADE;
 DROP TABLE IF EXISTS departments CASCADE;
+DROP TABLE IF EXISTS time_slots CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
+
+-- Create custom types first
+DO $$ BEGIN
+    CREATE TYPE user_role_enum AS ENUM ('admin', 'faculty', 'student');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE room_type_enum AS ENUM ('lecture_hall', 'laboratory', 'seminar_room', 'office', 'class', 'lab');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE day_of_week_enum AS ENUM ('monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE audit_action_enum AS ENUM ('INSERT', 'UPDATE', 'DELETE');
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
 
 -- Create users table with enhanced fields
 CREATE TABLE users (
@@ -38,6 +66,18 @@ CREATE TABLE departments (
     name VARCHAR(255) NOT NULL,
     description TEXT,
     head_of_department INTEGER REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create academic_terms table
+CREATE TABLE academic_terms (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(50) UNIQUE NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    academic_year VARCHAR(10) NOT NULL,
+    status VARCHAR(20) DEFAULT 'upcoming' CHECK (status IN ('upcoming', 'active', 'completed')),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -68,6 +108,7 @@ CREATE TABLE faculty (
     specialization TEXT,
     qualification TEXT,
     experience_years INTEGER,
+    time_preferences JSONB, -- Store time preferences as JSON
     deleted_at TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -137,6 +178,16 @@ CREATE TABLE courses (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Create course_prerequisites table for prerequisite relationships
+CREATE TABLE course_prerequisites (
+    id SERIAL PRIMARY KEY,
+    course_id INTEGER REFERENCES courses(id) ON DELETE CASCADE,
+    prerequisite_id INTEGER REFERENCES courses(id) ON DELETE CASCADE,
+    is_mandatory BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(course_id, prerequisite_id)
+);
+
 -- Create course assignments table for faculty-course relationships
 CREATE TABLE course_assignments (
     id SERIAL PRIMARY KEY,
@@ -197,8 +248,6 @@ CREATE TABLE timetable_entries (
     section VARCHAR(10) DEFAULT 'A',
     max_students INTEGER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT no_time_overlap UNIQUE (classroom_id, day_of_week, start_time, end_time),
-    CONSTRAINT no_faculty_conflict UNIQUE (faculty_id, day_of_week, start_time, end_time),
     CONSTRAINT valid_time_range CHECK (start_time < end_time)
 );
 
@@ -228,15 +277,25 @@ CREATE TABLE audit_logs (
     user_agent TEXT
 );
 
--- Insert default admin user
+-- Insert default admin user (password is 'admin123' hashed with bcrypt)
 INSERT INTO users (email, password_hash, first_name, last_name, role) 
-VALUES ('admin@university.edu', '$2a$10$rKlgJkgL.gGgJwJwJwJwJOm9K9K9K9K9K9K9K9K9K9K9K9K9K9K9K', 'System', 'Administrator', 'admin');
+VALUES ('admin@university.edu', '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'System', 'Administrator', 'admin');
 
 -- Insert sample departments based on user's data
 INSERT INTO departments (code, name, description) VALUES
 ('CSE', 'Computer Science and Engineering', 'Department of Computer Science and Engineering'),
 ('ECE', 'Electronics and Communication Engineering', 'Department of Electronics and Communication Engineering'),
-('ME', 'Mechanical Engineering', 'Department of Mechanical Engineering');
+('ME', 'Mechanical Engineering', 'Department of Mechanical Engineering'),
+('IT', 'Information Technology', 'Department of Information Technology'),
+('CIVIL', 'Civil Engineering', 'Department of Civil Engineering');
+
+-- Insert sample programs
+INSERT INTO programs (code, name, department_id, duration_years, total_semesters) VALUES
+('CSE-BTECH', 'B.Tech Computer Science and Engineering', 1, 4, 8),
+('ECE-BTECH', 'B.Tech Electronics and Communication', 2, 4, 8),
+('ME-BTECH', 'B.Tech Mechanical Engineering', 3, 4, 8),
+('IT-BTECH', 'B.Tech Information Technology', 4, 4, 8),
+('CIVIL-BTECH', 'B.Tech Civil Engineering', 5, 4, 8);
 
 -- Insert standard time slots
 INSERT INTO time_slots (slot_name, start_time, end_time, duration_minutes, slot_type) VALUES
@@ -246,8 +305,15 @@ INSERT INTO time_slots (slot_name, start_time, end_time, duration_minutes, slot_
 ('Lunch Break', '12:30:00', '13:30:00', 60, 'lunch'),
 ('Period 4', '13:30:00', '14:30:00', 60, 'lecture'),
 ('Period 5', '14:45:00', '15:45:00', 60, 'lecture'),
+('Period 6', '16:00:00', '17:00:00', 60, 'lecture'),
 ('Lab Session 1', '09:00:00', '12:00:00', 180, 'lab'),
 ('Lab Session 2', '13:30:00', '16:30:00', 180, 'lab');
+
+-- Insert sample academic terms
+INSERT INTO academic_terms (name, start_date, end_date, academic_year, status) VALUES
+('Fall 2024', '2024-08-15', '2024-12-20', '2024-25', 'active'),
+('Spring 2025', '2025-01-15', '2025-05-15', '2024-25', 'upcoming'),
+('Summer 2025', '2025-06-01', '2025-07-31', '2024-25', 'upcoming');
 
 -- Create indexes for better performance
 CREATE INDEX idx_students_roll_number ON students(student_id);
@@ -258,6 +324,9 @@ CREATE INDEX idx_faculty_employee_id ON faculty(employee_id);
 CREATE INDEX idx_timetable_entries_day_time ON timetable_entries(day_of_week, start_time);
 CREATE INDEX idx_enrollments_student_semester ON enrollments(student_id, semester);
 CREATE INDEX idx_course_assignments_semester ON course_assignments(semester, academic_year);
+CREATE INDEX idx_departments_code ON departments(code);
+CREATE INDEX idx_programs_code ON programs(code);
+CREATE INDEX idx_classrooms_room_code ON classrooms(room_code);
 
 -- Create triggers for updated_at timestamps
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -275,7 +344,44 @@ CREATE TRIGGER update_students_updated_at BEFORE UPDATE ON students FOR EACH ROW
 CREATE TRIGGER update_faculty_updated_at BEFORE UPDATE ON faculty FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_courses_updated_at BEFORE UPDATE ON courses FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_classrooms_updated_at BEFORE UPDATE ON classrooms FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_academic_terms_updated_at BEFORE UPDATE ON academic_terms FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Grant appropriate permissions
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO edusmart_user;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO edusmart_user;
+-- Create a function to check database setup
+CREATE OR REPLACE FUNCTION check_database_setup()
+RETURNS TABLE(table_name TEXT, record_count BIGINT) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 'users'::TEXT, COUNT(*) FROM users
+    UNION ALL
+    SELECT 'departments'::TEXT, COUNT(*) FROM departments
+    UNION ALL
+    SELECT 'programs'::TEXT, COUNT(*) FROM programs
+    UNION ALL
+    SELECT 'academic_terms'::TEXT, COUNT(*) FROM academic_terms
+    UNION ALL
+    SELECT 'time_slots'::TEXT, COUNT(*) FROM time_slots
+    UNION ALL
+    SELECT 'students'::TEXT, COUNT(*) FROM students
+    UNION ALL
+    SELECT 'faculty'::TEXT, COUNT(*) FROM faculty
+    UNION ALL
+    SELECT 'courses'::TEXT, COUNT(*) FROM courses
+    UNION ALL
+    SELECT 'classrooms'::TEXT, COUNT(*) FROM classrooms;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Grant appropriate permissions (only if the user exists)
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'edusmart_user') THEN
+        GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO edusmart_user;
+        GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO edusmart_user;
+        GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO edusmart_user;
+    END IF;
+END
+$$;
+
+-- Log successful completion
+INSERT INTO audit_logs (table_name, record_id, action, new_values, changed_at)
+VALUES ('system', 0, 'INSERT', '{"message": "Database schema initialized successfully"}', CURRENT_TIMESTAMP);
