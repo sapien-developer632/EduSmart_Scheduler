@@ -65,11 +65,11 @@ router.get('/templates/:type', requireAdmin, (req, res) => {
   
   const templates = {
     // CRITICAL MISSING DATA - PHASE 1
-    academic_terms: 'Name,Start Date,End Date,Academic Year,Status\nFall 2024,2024-08-15,2024-12-15,2024-25,active\nSpring 2025,2025-01-15,2025-05-15,2024-25,upcoming',
+    academic_terms: 'Name,Start Date,End Date,Academic Year,Status\nFall 2024,15-08-2024,20-12-2024,2024-25,active\nSpring 2025,15-01-2025,15-05-2025,2024-25,upcoming\nSummer 2025,01-06-2025,31-07-2025,2024-25,upcoming',
     
     programs: 'Code,Name,Department Code,Duration Years,Total Semesters,Description\nCSE-BTECH,B.Tech Computer Science and Engineering,CSE,4,8,Four year undergraduate program\nECE-BTECH,B.Tech Electronics and Communication,ECE,4,8,Four year undergraduate program',
     
-    batches: 'Name,Program Code,Start Year,End Year,Current Semester,Total Students\n2024-2028 CSE,CSE-BTECH,2024,2028,1,120\n2023-2027 CSE,CSE-BTECH,2023,2027,3,115',
+
     
     time_slots: 'Slot Name,Start Time,End Time,Duration Minutes,Slot Type,Is Active\nPeriod 1,09:00:00,10:00:00,60,lecture,true\nPeriod 2,10:15:00,11:15:00,60,lecture,true\nLunch Break,12:30:00,13:30:00,60,lunch,true',
     
@@ -89,10 +89,7 @@ router.get('/templates/:type', requireAdmin, (req, res) => {
     
     student_enrollments: 'Student ID,Course Code,Academic Year,Semester,Enrollment Date,Status\n2024U0001,CS101,2024-25,1,2024-08-15,enrolled\n2024U0001,MATH101,2024-25,1,2024-08-15,enrolled\n2024U0002,ECE101,2024-25,1,2024-08-15,enrolled',
     
-    course_assignments: 'Course Code,Faculty Employee ID,Academic Year,Semester,Section,Max Students\nCS101,FAC001,2024-25,1,A,60\nCS101,FAC001,2024-25,1,B,60\nECE101,FAC002,2024-25,1,A,50',
-    
-    // LEGACY - keeping for backward compatibility
-    subjects: 'Subject Name,Code,Subject Hours per Week,Faculty Name,Semester\nData Structures,CS201,4,Dr. John Smith,3\nAlgorithms,CS301,4,Dr. John Smith,5\nOperating Systems,CS303,4,Prof. Jane Doe,5'
+    course_assignments: 'Course Code,Faculty Employee ID,Academic Year,Semester,Section,Max Students\nCS101,FAC001,2024-25,1,A,60\nCS101,FAC001,2024-25,1,B,60\nECE101,FAC002,2024-25,1,A,50'
   };
 
   if (!templates[type]) {
@@ -133,6 +130,39 @@ router.post('/academic_terms', requireAdmin, upload.single('csvFile'), async (re
     let successCount = 0;
     let errors = [];
 
+    // Helper function to convert date format from DD-MM-YYYY to YYYY-MM-DD
+    const convertDateFormat = (dateStr) => {
+      if (!dateStr) return null;
+      
+      // Try DD-MM-YYYY format first
+      const ddmmyyyyMatch = dateStr.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+      if (ddmmyyyyMatch) {
+        const [, day, month, year] = ddmmyyyyMatch;
+        return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      }
+      
+      // Try DD/MM/YYYY format
+      const ddmmyyyySlashMatch = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (ddmmyyyySlashMatch) {
+        const [, day, month, year] = ddmmyyyySlashMatch;
+        return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      }
+      
+      // Try YYYY-MM-DD format (already correct)
+      const yyyymmddMatch = dateStr.match(/^\d{4}-\d{1,2}-\d{1,2}$/);
+      if (yyyymmddMatch) {
+        return dateStr;
+      }
+      
+      // Try other common formats
+      const dateObj = new Date(dateStr);
+      if (!isNaN(dateObj.getTime())) {
+        return dateObj.toISOString().split('T')[0];
+      }
+      
+      return null;
+    };
+
     try {
       await client.query('BEGIN');
 
@@ -152,13 +182,27 @@ router.post('/academic_terms', requireAdmin, upload.single('csvFile'), async (re
       for (const [index, row] of csvData.entries()) {
         try {
           const name = row.Name || row.name;
-          const startDate = row['Start Date'] || row.start_date;
-          const endDate = row['End Date'] || row.end_date;
+          const startDateRaw = row['Start Date'] || row.start_date;
+          const endDateRaw = row['End Date'] || row.end_date;
           const academicYear = row['Academic Year'] || row.academic_year;
           const status = row.Status || row.status || 'upcoming';
           
-          if (!name || !startDate || !endDate || !academicYear) {
+          if (!name || !startDateRaw || !endDateRaw || !academicYear) {
             errors.push(`Row ${index + 2}: Missing required fields (Name, Start Date, End Date, Academic Year)`);
+            continue;
+          }
+
+          // Convert date formats
+          const startDate = convertDateFormat(startDateRaw.trim());
+          const endDate = convertDateFormat(endDateRaw.trim());
+
+          if (!startDate) {
+            errors.push(`Row ${index + 2}: Invalid start date format '${startDateRaw}'. Use DD-MM-YYYY, DD/MM/YYYY, or YYYY-MM-DD`);
+            continue;
+          }
+
+          if (!endDate) {
+            errors.push(`Row ${index + 2}: Invalid end date format '${endDateRaw}'. Use DD-MM-YYYY, DD/MM/YYYY, or YYYY-MM-DD`);
             continue;
           }
 
@@ -428,6 +472,288 @@ router.post('/student_enrollments', requireAdmin, upload.single('csvFile'), asyn
 
 // Add more upload endpoints for other data types here (classrooms, faculty, students, etc.)
 // ... (Similar pattern for other endpoints)
+
+// Automatic Batch Generation Algorithm
+router.post('/generate-batches', requireAdmin, async (req, res) => {
+  try {
+    const { academicYear, semester } = req.body;
+    
+    if (!academicYear || !semester) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Academic year and semester are required' 
+      });
+    }
+
+    const client = await pool.connect();
+    let successCount = 0;
+    let errors = [];
+    let batchesCreated = [];
+
+    try {
+      await client.query('BEGIN');
+
+      // Get all students with their enrollments for the specified academic year and semester
+      const studentsQuery = `
+        SELECT DISTINCT 
+          s.id as student_id,
+          s.student_id as roll_number,
+          s.program_id,
+          s.enrollment_year,
+          p.code as program_code,
+          p.name as program_name,
+          d.code as department_code,
+          STRING_AGG(c.course_code, ',' ORDER BY c.course_code) as enrolled_courses,
+          COUNT(e.course_id) as course_count
+        FROM students s
+        JOIN programs p ON s.program_id = p.id
+        JOIN departments d ON p.department_id = d.id
+        JOIN enrollments e ON s.id = e.student_id
+        JOIN courses c ON e.course_id = c.id
+        WHERE e.academic_year = $1 AND e.semester = $2 AND s.deleted_at IS NULL
+        GROUP BY s.id, s.student_id, s.program_id, s.enrollment_year, p.code, p.name, d.code
+        ORDER BY p.code, s.enrollment_year, enrolled_courses
+      `;
+
+      const studentsResult = await client.query(studentsQuery, [academicYear, semester]);
+      const students = studentsResult.rows;
+
+      if (students.length === 0) {
+        return res.json({
+          success: false,
+          message: 'No student enrollments found for the specified academic year and semester'
+        });
+      }
+
+      // Group students by program and enrollment year first
+      const programGroups = {};
+      
+      students.forEach(student => {
+        const programKey = `${student.program_code}-${student.enrollment_year}`;
+        if (!programGroups[programKey]) {
+          programGroups[programKey] = {
+            program_id: student.program_id,
+            program_code: student.program_code,
+            program_name: student.program_name,
+            department_code: student.department_code,
+            enrollment_year: student.enrollment_year,
+            students: []
+          };
+        }
+        programGroups[programKey].students.push(student);
+      });
+
+      // Create batches for each program group
+      for (const [programKey, group] of Object.entries(programGroups)) {
+        // Further group by similar course patterns within each program
+        const coursePatterns = {};
+        
+        group.students.forEach(student => {
+          const coursePattern = student.enrolled_courses;
+          if (!coursePatterns[coursePattern]) {
+            coursePatterns[coursePattern] = [];
+          }
+          coursePatterns[coursePattern].push(student);
+        });
+
+        // Create batches based on course patterns and optimal size (30-60 students per batch)
+        const maxBatchSize = 60;
+        const minBatchSize = 20;
+        let batchCounter = 1;
+
+        for (const [coursePattern, patternStudents] of Object.entries(coursePatterns)) {
+          // If pattern group is too large, split into multiple batches
+          if (patternStudents.length > maxBatchSize) {
+            const numBatches = Math.ceil(patternStudents.length / maxBatchSize);
+            const studentsPerBatch = Math.ceil(patternStudents.length / numBatches);
+            
+            for (let i = 0; i < numBatches; i++) {
+              const batchStudents = patternStudents.slice(i * studentsPerBatch, (i + 1) * studentsPerBatch);
+              await createBatch(client, group, batchCounter, batchStudents, academicYear, semester);
+              batchCounter++;
+              successCount++;
+            }
+          } 
+          // If pattern group is too small, try to merge with similar patterns or create mixed batch
+          else if (patternStudents.length < minBatchSize) {
+            // For now, create batch anyway but mark it for potential merging
+            await createBatch(client, group, batchCounter, patternStudents, academicYear, semester);
+            batchCounter++;
+            successCount++;
+          }
+          // Optimal size - create single batch
+          else {
+            await createBatch(client, group, batchCounter, patternStudents, academicYear, semester);
+            batchCounter++;
+            successCount++;
+          }
+        }
+      }
+
+      await client.query('COMMIT');
+
+      // Get created batches for response
+      const batchesQuery = `
+        SELECT b.*, p.name as program_name, COUNT(s.id) as actual_student_count
+        FROM batches b
+        JOIN programs p ON b.program_id = p.id
+        LEFT JOIN students s ON b.id = s.batch_id AND s.deleted_at IS NULL
+        WHERE b.name LIKE $1
+        GROUP BY b.id, p.name
+        ORDER BY b.name
+      `;
+      
+      const batchesResult = await client.query(batchesQuery, [`%${academicYear}%`]);
+      batchesCreated = batchesResult.rows;
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    res.json({
+      success: true,
+      message: `Successfully created ${successCount} batches using intelligent grouping algorithm`,
+      details: {
+        batchesCreated: successCount,
+        totalStudentsProcessed: studentsResult.rows.length,
+        errorCount: errors.length,
+        errors: errors.slice(0, 10),
+        batches: batchesCreated
+      }
+    });
+
+  } catch (error) {
+    console.error('Batch generation error:', error);
+    res.status(500).json({ success: false, message: 'Batch generation failed', error: error.message });
+  }
+});
+
+// Helper function to create a batch
+async function createBatch(client, programGroup, batchNumber, students, academicYear, semester) {
+  const batchName = `${programGroup.program_code}-${programGroup.enrollment_year}-B${batchNumber}`;
+  const endYear = programGroup.enrollment_year + 4; // Assuming 4-year programs
+  
+  // Insert batch
+  const batchResult = await client.query(
+    'INSERT INTO batches (name, program_id, start_year, end_year, current_semester, total_students) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (name) DO UPDATE SET total_students = $6 RETURNING id',
+    [batchName, programGroup.program_id, programGroup.enrollment_year, endYear, semester, students.length]
+  );
+  
+  const batchId = batchResult.rows[0].id;
+  
+  // Update students to assign them to this batch
+  const studentIds = students.map(s => s.student_id);
+  if (studentIds.length > 0) {
+    await client.query(
+      'UPDATE students SET batch_id = $1 WHERE id = ANY($2)',
+      [batchId, studentIds]
+    );
+  }
+  
+  return batchId;
+}
+
+// Get batch analysis and suggestions
+router.get('/batch-analysis/:academicYear/:semester', requireAdmin, async (req, res) => {
+  try {
+    const { academicYear, semester } = req.params;
+    const client = await pool.connect();
+
+    // Analyze current enrollments for batch generation readiness
+    const analysisQuery = `
+      SELECT 
+        p.code as program_code,
+        p.name as program_name,
+        d.code as department_code,
+        s.enrollment_year,
+        COUNT(DISTINCT s.id) as total_students,
+        COUNT(DISTINCT c.course_code) as unique_courses,
+        STRING_AGG(DISTINCT c.course_code, ', ' ORDER BY c.course_code) as course_list,
+        ROUND(AVG(student_course_count.course_count), 2) as avg_courses_per_student
+      FROM students s
+      JOIN programs p ON s.program_id = p.id
+      JOIN departments d ON p.department_id = d.id
+      JOIN enrollments e ON s.id = e.student_id
+      JOIN courses c ON e.course_id = c.id
+      JOIN (
+        SELECT s.id, COUNT(e.course_id) as course_count
+        FROM students s
+        JOIN enrollments e ON s.id = e.student_id
+        WHERE e.academic_year = $1 AND e.semester = $2
+        GROUP BY s.id
+      ) student_course_count ON s.id = student_course_count.id
+      WHERE e.academic_year = $1 AND e.semester = $2 AND s.deleted_at IS NULL
+      GROUP BY p.code, p.name, d.code, s.enrollment_year
+      ORDER BY p.code, s.enrollment_year
+    `;
+
+    const analysisResult = await client.query(analysisQuery, [academicYear, semester]);
+    
+    // Check existing batches
+    const existingBatchesQuery = `
+      SELECT b.*, p.code as program_code, COUNT(s.id) as current_students
+      FROM batches b
+      JOIN programs p ON b.program_id = p.id
+      LEFT JOIN students s ON b.id = s.batch_id AND s.deleted_at IS NULL
+      GROUP BY b.id, p.code
+      ORDER BY b.name
+    `;
+    
+    const existingBatchesResult = await client.query(existingBatchesQuery);
+    
+    client.release();
+
+    res.json({
+      success: true,
+      analysis: {
+        programDistribution: analysisResult.rows,
+        existingBatches: existingBatchesResult.rows,
+        recommendations: generateBatchRecommendations(analysisResult.rows)
+      }
+    });
+
+  } catch (error) {
+    console.error('Batch analysis error:', error);
+    res.status(500).json({ success: false, message: 'Analysis failed', error: error.message });
+  }
+});
+
+// Helper function to generate batch recommendations
+function generateBatchRecommendations(programData) {
+  const recommendations = [];
+  
+  programData.forEach(program => {
+    if (program.total_students > 60) {
+      recommendations.push({
+        program: program.program_code,
+        issue: 'Large cohort',
+        suggestion: `Split ${program.total_students} students into ${Math.ceil(program.total_students / 50)} batches`,
+        priority: 'high'
+      });
+    } else if (program.total_students < 20) {
+      recommendations.push({
+        program: program.program_code,
+        issue: 'Small cohort',
+        suggestion: `Consider merging with similar program or creating mixed batch`,
+        priority: 'medium'
+      });
+    }
+    
+    if (program.avg_courses_per_student < 4) {
+      recommendations.push({
+        program: program.program_code,
+        issue: 'Low course load',
+        suggestion: 'Verify if all student enrollments are complete',
+        priority: 'high'
+      });
+    }
+  });
+  
+  return recommendations;
+}
 
 // Get upload statistics
 router.get('/stats', requireAdmin, async (req, res) => {
