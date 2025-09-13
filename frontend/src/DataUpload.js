@@ -8,37 +8,118 @@ const DataUpload = () => {
   const [stats, setStats] = useState({});
   const [uploadHistory, setUploadHistory] = useState([]);
 
-  // Data types configuration based on your CSV structure
+  // Data types configuration based on enhanced university requirements
   const dataTypes = {
+    // CRITICAL PHASE 1 - Must be uploaded first
+    academic_terms: {
+      name: 'Academic Terms',
+      description: 'Define semesters/terms (CRITICAL - Upload First!)',
+      icon: '📅',
+      fields: ['Name', 'Start Date', 'End Date', 'Academic Year', 'Status'],
+      priority: 'CRITICAL',
+      order: 1
+    },
     departments: {
       name: 'Departments',
       description: 'Upload department information',
       icon: '🏢',
-      fields: ['name', 'description']
+      fields: ['Code', 'Name', 'Description', 'Head of Department Email'],
+      priority: 'HIGH',
+      order: 2
     },
+    programs: {
+      name: 'Programs',
+      description: 'Define degree programs (B.Tech, M.Tech, etc.)',
+      icon: '🎓',
+      fields: ['Code', 'Name', 'Department Code', 'Duration Years'],
+      priority: 'HIGH', 
+      order: 3
+    },
+    time_slots: {
+      name: 'Time Slots',
+      description: 'Define standard class periods (CRITICAL for scheduling)',
+      icon: '⏰',
+      fields: ['Slot Name', 'Start Time', 'End Time', 'Duration Minutes'],
+      priority: 'CRITICAL',
+      order: 4
+    },
+    
+    // PHASE 2 - Core Data
     classrooms: {
       name: 'Classrooms', 
-      description: 'Upload classroom data (Room Number, Capacity, Type)',
+      description: 'Upload classroom data with equipment details',
       icon: '🏛️',
-      fields: ['Room Number', 'Capacity', 'Type']
-    },
-    students: {
-      name: 'Students',
-      description: 'Upload student records (Name, Roll Number, Mail ID, Department, Semester)',
-      icon: '👨‍🎓', 
-      fields: ['Name', 'Roll Number', 'Mail ID', 'Department', 'Semester']
+      fields: ['Room Code', 'Building', 'Floor', 'Capacity', 'Type', 'Equipment'],
+      priority: 'HIGH',
+      order: 5
     },
     faculty: {
       name: 'Faculty',
-      description: 'Upload faculty information with subject assignments',
+      description: 'Upload faculty with qualifications and preferences',
       icon: '👩‍🏫',
-      fields: ['Name', 'Department', 'Mail ID', 'Subjects Taught', 'Faculty Working Hours per Week', 'Semester Taught']
+      fields: ['Name', 'Employee ID', 'Email', 'Department Code', 'Time Preferences'],
+      priority: 'HIGH',
+      order: 6
     },
-    subjects: {
-      name: 'Subjects',
-      description: 'Upload subjects/courses with faculty assignments',
+    courses: {
+      name: 'Courses',
+      description: 'Upload courses with prerequisites and details',
       icon: '📚',
-      fields: ['Subject Name', 'Code', 'Subject Hours per Week', 'Faculty Name', 'Semester']
+      fields: ['Course Code', 'Title', 'Department Code', 'Semester', 'Credits'],
+      priority: 'HIGH',
+      order: 7
+    },
+    batches: {
+      name: 'Batches',
+      description: 'Define student cohorts/batches',
+      icon: '👥',
+      fields: ['Name', 'Program Code', 'Start Year', 'End Year'],
+      priority: 'HIGH',
+      order: 8
+    },
+    students: {
+      name: 'Students',
+      description: 'Upload student records with contact details',
+      icon: '👨‍🎓', 
+      fields: ['Name', 'Student ID', 'Email', 'Program Code', 'Batch Name'],
+      priority: 'HIGH',
+      order: 9
+    },
+    
+    // PHASE 3 - Critical for Scheduling
+    student_enrollments: {
+      name: 'Student Enrollments',
+      description: 'CRITICAL: Which students are in which courses (Required for scheduling!)',
+      icon: '📝',
+      fields: ['Student ID', 'Course Code', 'Academic Year', 'Semester'],
+      priority: 'CRITICAL',
+      order: 10
+    },
+    course_assignments: {
+      name: 'Course Assignments',
+      description: 'CRITICAL: Assign faculty to courses for scheduling',
+      icon: '👩‍🏫📚',
+      fields: ['Course Code', 'Faculty Employee ID', 'Academic Year', 'Semester'],
+      priority: 'CRITICAL',
+      order: 11
+    },
+    course_prerequisites: {
+      name: 'Course Prerequisites',
+      description: 'Define prerequisite relationships between courses',
+      icon: '🔗',
+      fields: ['Course Code', 'Prerequisite Course Code', 'Is Mandatory'],
+      priority: 'MEDIUM',
+      order: 12
+    },
+    
+    // LEGACY - keeping for backward compatibility  
+    subjects: {
+      name: 'Subjects (Legacy)',
+      description: 'Legacy format - use Courses instead',
+      icon: '📖',
+      fields: ['Subject Name', 'Code', 'Subject Hours per Week', 'Faculty Name'],
+      priority: 'LOW',
+      order: 13
     }
   };
 
@@ -49,9 +130,10 @@ const DataUpload = () => {
 
   const loadStats = async () => {
     try {
+      const token = localStorage.getItem('authToken');
       const response = await fetch('/api/upload/stats', {
         headers: {
-          'Authorization': 'Bearer admin-token'
+          'Authorization': `Bearer ${token}`
         }
       });
       const data = await response.json();
@@ -65,9 +147,10 @@ const DataUpload = () => {
 
   const downloadTemplate = async (type) => {
     try {
+      const token = localStorage.getItem('authToken');
       const response = await fetch(`/api/upload/templates/${type}`, {
         headers: {
-          'Authorization': 'Bearer admin-token'
+          'Authorization': `Bearer ${token}`
         }
       });
       
@@ -81,6 +164,8 @@ const DataUpload = () => {
         a.click();
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
+      } else {
+        console.error('Failed to download template:', response.statusText);
       }
     } catch (error) {
       console.error('Failed to download template:', error);
@@ -103,10 +188,11 @@ const DataUpload = () => {
     formData.append('csvFile', file);
 
     try {
+      const token = localStorage.getItem('authToken');
       const response = await fetch(`/api/upload/${type}`, {
         method: 'POST',
         headers: {
-          'Authorization': 'Bearer admin-token'
+          'Authorization': `Bearer ${token}`
         },
         body: formData
       });
@@ -139,6 +225,7 @@ const DataUpload = () => {
         });
       }
     } catch (error) {
+      console.error('Upload error details:', error);
       setUploadStatus({ 
         type, 
         status: 'error', 

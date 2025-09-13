@@ -152,7 +152,7 @@ function App() {
               className={activeSection === 'timetable' ? 'nav-active' : ''}
               onClick={() => setActiveSection('timetable')}
             >
-              📅 Timetable
+              📅 {user?.role === 'admin' ? 'Timetable Management' : user?.role === 'faculty' ? 'My Schedule' : 'My Timetable'}
             </button>
           </div>
           <div className="user-info">
@@ -192,14 +192,54 @@ function App() {
               </div>
             </section>
 
-            <section className="section">
-              <h2>📅 Timetable Generation</h2>
-              <div className="timetable-controls">
-                <button className="primary-btn">Generate New Timetable</button>
-                <button className="secondary-btn">View Current Timetable</button>
-                <button className="secondary-btn">Resolve Conflicts</button>
-              </div>
-            </section>
+            {/* ADMIN ONLY - Timetable Generation */}
+            {user?.role === 'admin' && (
+              <section className="section">
+                <h2>📅 Timetable Generation</h2>
+                <div className="timetable-controls">
+                  <button className="primary-btn">Generate New Timetable</button>
+                  <button className="secondary-btn">View Current Timetable</button>
+                  <button className="secondary-btn">Resolve Conflicts</button>
+                </div>
+                <div className="admin-note">
+                  <p><strong>Admin Controls:</strong> Generate and manage university-wide timetables</p>
+                </div>
+              </section>
+            )}
+
+            {/* FACULTY - Schedule Overview */}
+            {user?.role === 'faculty' && (
+              <section className="section">
+                <h2>📅 My Teaching Schedule</h2>
+                <div className="faculty-schedule">
+                  <button className="primary-btn" onClick={() => setActiveSection('timetable')}>
+                    📅 View My Schedule
+                  </button>
+                  <button className="secondary-btn">📊 My Course Load</button>
+                  <button className="secondary-btn">👨‍🎓 My Students</button>
+                </div>
+                <div className="faculty-note">
+                  <p><strong>Faculty View:</strong> Access your teaching schedule and course information</p>
+                </div>
+              </section>
+            )}
+
+            {/* STUDENT - Timetable Access */}
+            {user?.role === 'student' && (
+              <section className="section">
+                <h2>📅 My Class Schedule</h2>
+                <div className="student-timetable">
+                  <button className="primary-btn" onClick={() => setActiveSection('timetable')}>
+                    📅 View My Timetable
+                  </button>
+                  <button className="secondary-btn">📚 My Enrolled Courses</button>
+                  <button className="secondary-btn">📊 My Academic Progress</button>
+                </div>
+                <div className="student-note">
+                  <p><strong>Student View:</strong> Access your personal class schedule and course information</p>
+                </div>
+              </section>
+            )}
 
             <section className="section">
               <h2>👥 Quick Actions</h2>
@@ -218,13 +258,13 @@ function App() {
                   <>
                     <button>📋 My Courses</button>
                     <button>👨‍🎓 My Students</button>
-                    <button>📅 My Schedule</button>
+                    <button onClick={() => setActiveSection('timetable')}>📅 My Schedule</button>
                   </>
                 )}
                 {user?.role === 'student' && (
                   <>
                     <button>📚 My Courses</button>
-                    <button>📅 My Timetable</button>
+                    <button onClick={() => setActiveSection('timetable')}>📅 My Timetable</button>
                     <button>📊 My Grades</button>
                   </>
                 )}
@@ -265,21 +305,237 @@ function App() {
 
         {activeSection === 'timetable' && (
           <div className="timetable-section">
-            <h2>📅 Timetable Management</h2>
-            <div className="timetable-placeholder">
-              <div className="placeholder-content">
-                <h3>🚧 Timetable Feature Coming Soon</h3>
-                <p>The timetable generation and viewing feature will be available here.</p>
-                <p>Features will include:</p>
-                <ul>
-                  <li>📊 Visual timetable grid</li>
-                  <li>🔄 Automatic conflict resolution</li>
-                  <li>📱 Mobile-friendly schedule view</li>
-                  <li>📧 Schedule notifications</li>
-                  <li>📈 Resource utilization analytics</li>
-                </ul>
+            {user?.role === 'admin' && (
+              <>
+                <h2>📅 Timetable Management</h2>
+                <div className="admin-timetable-controls">
+                  <div className="timetable-generation">
+                    <h3>🛠️ Generation Controls</h3>
+                    <div className="generation-buttons">
+                      <button className="primary-btn">🔄 Generate New Timetable</button>
+                      <button className="secondary-btn">📊 View Generation History</button>
+                      <button className="secondary-btn">⚠️ Resolve Conflicts</button>
+                      <button className="secondary-btn">📈 Optimization Settings</button>
+                    </div>
+                  </div>
+                  <div className="timetable-overview">
+                    <h3>📋 Current Timetables</h3>
+                    <div className="timetable-list">
+                      <div className="timetable-item">
+                        <span>Fall 2024 - Active</span>
+                        <button>View</button>
+                        <button>Edit</button>
+                      </div>
+                      <div className="timetable-item">
+                        <span>Spring 2025 - Draft</span>
+                        <button>View</button>
+                        <button>Activate</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {user?.role === 'faculty' && (
+              <>
+                <h2>📅 My Teaching Schedule</h2>
+                <div className="faculty-timetable">
+                  <div className="schedule-overview">
+                    <h3>📊 This Week's Classes</h3>
+                    <div className="weekly-schedule">
+                      <div className="schedule-day">
+                        <h4>Monday</h4>
+                        <div className="class-slot">
+                          <span className="time">09:00-10:30</span>
+                          <span className="course">CS101 - Room C101</span>
+                        </div>
+                        <div className="class-slot">
+                          <span className="time">14:00-15:30</span>
+                          <span className="course">CS201 - Room C102</span>
+                        </div>
+                      </div>
+                      <div className="schedule-day">
+                        <h4>Tuesday</h4>
+                        <div className="class-slot">
+                          <span className="time">10:15-11:45</span>
+                          <span className="course">CS101 Lab - Room LB1</span>
+                        </div>
+                      </div>
+                      {/* Add more days as needed */}
+                    </div>
+                  </div>
+                  <div className="faculty-actions">
+                    <button className="primary-btn">📥 Download Schedule</button>
+                    <button className="secondary-btn">📧 Email Schedule</button>
+                    <button className="secondary-btn">🗓️ View Full Semester</button>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {user?.role === 'student' && (
+              <>
+                <h2>📅 My Class Timetable</h2>
+                <div className="student-timetable">
+                  <div className="timetable-header">
+                    <h3>📚 Fall 2024 Semester</h3>
+                    <div className="semester-info">
+                      <span>Enrolled Courses: 6</span>
+                      <span>Total Credits: 18</span>
+                    </div>
+                  </div>
+                  
+                  <div className="weekly-timetable">
+                    <table className="timetable-grid">
+                      <thead>
+                        <tr>
+                          <th>Time</th>
+                          <th>Monday</th>
+                          <th>Tuesday</th>
+                          <th>Wednesday</th>
+                          <th>Thursday</th>
+                          <th>Friday</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td>09:00-10:30</td>
+                          <td className="class-cell">
+                            <div className="class-info">
+                              <strong>CS101</strong><br/>
+                              <span>Intro to Programming</span><br/>
+                              <span className="room">Room: C101</span>
+                            </div>
+                          </td>
+                          <td></td>
+                          <td className="class-cell">
+                            <div className="class-info">
+                              <strong>MATH201</strong><br/>
+                              <span>Calculus II</span><br/>
+                              <span className="room">Room: M201</span>
+                            </div>
+                          </td>
+                          <td></td>
+                          <td className="class-cell">
+                            <div className="class-info">
+                              <strong>PHY101</strong><br/>
+                              <span>Physics I</span><br/>
+                              <span className="room">Room: P101</span>
+                            </div>
+                          </td>
+                        </tr>
+                        <tr>
+                          <td>10:45-12:15</td>
+                          <td></td>
+                          <td className="class-cell">
+                            <div className="class-info">
+                              <strong>ENG101</strong><br/>
+                              <span>English Composition</span><br/>
+                              <span className="room">Room: E101</span>
+                            </div>
+                          </td>
+                          <td></td>
+                          <td className="class-cell">
+                            <div className="class-info">
+                              <strong>CS101</strong><br/>
+                              <span>Intro to Programming</span><br/>
+                              <span className="room">Room: C101</span>
+                            </div>
+                          </td>
+                          <td></td>
+                        </tr>
+                        <tr>
+                          <td>13:30-15:00</td>
+                          <td className="class-cell">
+                            <div className="class-info">
+                              <strong>HIST101</strong><br/>
+                              <span>World History</span><br/>
+                              <span className="room">Room: H101</span>
+                            </div>
+                          </td>
+                          <td></td>
+                          <td className="class-cell">
+                            <div className="class-info">
+                              <strong>CS101L</strong><br/>
+                              <span>Programming Lab</span><br/>
+                              <span className="room">Room: LB1</span>
+                            </div>
+                          </td>
+                          <td></td>
+                          <td className="class-cell">
+                            <div className="class-info">
+                              <strong>MATH201</strong><br/>
+                              <span>Calculus II</span><br/>
+                              <span className="room">Room: M201</span>
+                            </div>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="student-actions">
+                    <button className="primary-btn">📥 Download Timetable</button>
+                    <button className="secondary-btn">📧 Email to Parents</button>
+                    <button className="secondary-btn">📱 Add to Calendar</button>
+                    <button className="secondary-btn">🗓️ View Exam Schedule</button>
+                  </div>
+
+                  <div className="course-list">
+                    <h3>📚 Enrolled Courses</h3>
+                    <div className="courses-enrolled">
+                      <div className="course-item">
+                        <span className="course-code">CS101</span>
+                        <span className="course-name">Introduction to Programming</span>
+                        <span className="credits">4 credits</span>
+                        <span className="faculty">Dr. Smith</span>
+                      </div>
+                      <div className="course-item">
+                        <span className="course-code">MATH201</span>
+                        <span className="course-name">Calculus II</span>
+                        <span className="credits">3 credits</span>
+                        <span className="faculty">Prof. Johnson</span>
+                      </div>
+                      <div className="course-item">
+                        <span className="course-code">PHY101</span>
+                        <span className="course-name">Physics I</span>
+                        <span className="credits">4 credits</span>
+                        <span className="faculty">Dr. Wilson</span>
+                      </div>
+                      <div className="course-item">
+                        <span className="course-code">ENG101</span>
+                        <span className="course-name">English Composition</span>
+                        <span className="credits">3 credits</span>
+                        <span className="faculty">Prof. Davis</span>
+                      </div>
+                      <div className="course-item">
+                        <span className="course-code">HIST101</span>
+                        <span className="course-name">World History</span>
+                        <span className="credits">3 credits</span>
+                        <span className="faculty">Dr. Brown</span>
+                      </div>
+                      <div className="course-item">
+                        <span className="course-code">CS101L</span>
+                        <span className="course-name">Programming Lab</span>
+                        <span className="credits">1 credit</span>
+                        <span className="faculty">TA: Mike</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Fallback for unknown roles */}
+            {!['admin', 'faculty', 'student'].includes(user?.role) && (
+              <div className="timetable-placeholder">
+                <div className="placeholder-content">
+                  <h3>🚧 Timetable Feature</h3>
+                  <p>Access is based on your user role. Please contact admin for assistance.</p>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         )}
       </main>
